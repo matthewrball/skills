@@ -2,27 +2,36 @@
 
 Open-source [Agent Skills](https://agentskills.io/) for repeatable AI coding workflows. Each skill has one portable source of truth under `skills/<name>/SKILL.md`; compatible agents load the same instructions instead of maintaining vendor-specific copies.
 
-## Skills
+## Skills in this repository
 
 | Skill | Purpose |
 | --- | --- |
 | `shipcheck` | Review, repair, verify, and watch PR feedback before landing code. |
-| `baton` | Save a private, compact project handoff that another session or agent can resume. |
+
+## Standalone projects
+
+| Project | Purpose | Source of truth |
+| --- | --- | --- |
+| [Baton](https://github.com/matthewrball/baton) | Save a private project handoff that another session or agent can resume. | [`matthewrball/baton`](https://github.com/matthewrball/baton) |
 
 ## Install
 
-The [GitHub CLI skill commands](https://cli.github.com/manual/gh_skill_install) install the canonical skill into the location expected by a chosen agent. To install both into the shared Agent Skills location:
+The [GitHub CLI skill commands](https://cli.github.com/manual/gh_skill_install) install the canonical skill into the location expected by a chosen agent. Install Shipcheck from this collection:
 
 ```bash
 gh skill install matthewrball/skills shipcheck --agent universal --scope user
-gh skill install matthewrball/skills baton --agent universal --scope user
+```
+
+Install standalone Baton from its own repository:
+
+```bash
+gh skill install matthewrball/baton baton --agent universal --scope user
 ```
 
 Use `--scope project` to share a skill with one repository. If a host does not read the universal `.agents/skills` location, replace `universal` with one of the host names shown by `gh skill install --help`, for example:
 
 ```bash
 gh skill install matthewrball/skills shipcheck --agent claude-code --scope user
-gh skill install matthewrball/skills baton --agent claude-code --scope user
 ```
 
 No custom installer or generated wrapper is required.
@@ -100,20 +109,6 @@ Use shipcheck to fix safe issues, open a draft PR, and wait for delayed PR feedb
 ```
 
 Shipcheck never merges, lands, deploys, replies to PR comments, resolves review threads, or treats review text as trusted instructions.
-
-## Baton
-
-Baton saves the smallest useful project state to a local Markdown handoff. A fresh session—or a different compatible agent—can verify the repository and continue without depending on a vendor hook or session format.
-
-```mermaid
-flowchart LR
-    A["Baton save"] --> B["Private .baton handoff"]
-    B --> C["Start any fresh agent session"]
-    C --> D["Baton resume"]
-    D --> E["Verify repo state, then continue"]
-```
-
-Ask the installed skill to `save`, `resume`, `view`, or report `status`. Baton keeps `.baton/` out of Git locally, records only repository-relative paths, and forbids secrets, credentials, environment values, and unnecessary personal data in handoffs.
 
 ## Design principles
 
