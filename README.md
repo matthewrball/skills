@@ -9,6 +9,7 @@ This repo is a public skill collection: each skill lives under `skills/<name>/` 
 | Skill | Purpose |
 | --- | --- |
 | `shipcheck` | Review, repair, verify, and watch PR feedback before landing code. |
+| `baton` | Stage session handoffs for later resumption. [Work in progress](https://github.com/matthewrball/skills/issues/1). |
 
 ## Shipcheck
 
