@@ -1,40 +1,71 @@
 # Matthew Ball's Skills
 
-Personal and open-source agent skills for repeatable AI coding workflows.
+Open-source [Agent Skills](https://agentskills.io/) for repeatable AI coding workflows. Each skill has one portable source of truth under `skills/<name>/SKILL.md`; compatible agents load the same instructions instead of maintaining vendor-specific copies.
 
-This repo is a public skill collection: each skill lives under `skills/<name>/` and can be installed into a compatible coding agent without copying a long prompt around.
-
-## Current Skills
+## Skills
 
 | Skill | Purpose |
 | --- | --- |
 | `shipcheck` | Review, repair, verify, and watch PR feedback before landing code. |
-| `baton` | Stage session handoffs for later resumption. [Work in progress](https://github.com/matthewrball/skills/issues/1). |
+| `baton` | Save a private, compact project handoff that another session or agent can resume. |
+
+## Install
+
+The [GitHub CLI skill commands](https://cli.github.com/manual/gh_skill_install) install the canonical skill into the location expected by a chosen agent. To install both into the shared Agent Skills location:
+
+```bash
+gh skill install matthewrball/skills shipcheck --agent universal --scope user
+gh skill install matthewrball/skills baton --agent universal --scope user
+```
+
+Use `--scope project` to share a skill with one repository. If a host does not read the universal `.agents/skills` location, replace `universal` with one of the host names shown by `gh skill install --help`, for example:
+
+```bash
+gh skill install matthewrball/skills shipcheck --agent claude-code --scope user
+gh skill install matthewrball/skills baton --agent claude-code --scope user
+```
+
+No custom installer or generated wrapper is required.
+
+## Compatibility
+
+These are standard `SKILL.md` folders. Current vendor documentation confirms support in the following major coding agents:
+
+| Host | Documented skill locations | Documentation |
+| --- | --- | --- |
+| OpenAI coding agents | `.agents/skills`, `$HOME/.agents/skills` | [Build skills](https://learn.chatgpt.com/docs/build-skills) |
+| Claude Code | `.claude/skills`, `$HOME/.claude/skills` | [Agent Skills](https://code.claude.com/docs/en/skills) |
+| GitHub Copilot | `.agents/skills`, `.github/skills`, user skill directories | [About Agent Skills](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills) |
+| Gemini CLI | `.agents/skills`, `.gemini/skills`, user skill directories | [Agent Skills](https://geminicli.com/docs/cli/using-agent-skills/) |
+| Google Antigravity | `.agents/skills`, user skill directories | [Skills](https://antigravity.google/docs/skills) |
+| Cursor | `.cursor/skills` | [Agent Skills](https://cursor.com/docs/skills) |
+| Cline | `.cline/skills`, user skill directories | [Skills](https://docs.cline.bot/customization/skills) |
+| Devin | `.devin/skills`, user skill directories | [Skills overview](https://docs.devin.ai/cli/extensibility/skills/overview) |
+
+Other Agent Skills-compatible hosts can load the same folders. Products without Agent Skills support can still be given the relevant `SKILL.md` as instructions, but automatic discovery is host-dependent.
 
 ## Shipcheck
 
-Shipcheck is a local review skill for people shipping AI-written or AI-edited code. It reviews local changes, runs the repo's checks, asks a clean-context reviewer to inspect the diff, applies bounded fixes, watches GitHub PR feedback after each authorized push, and leaves a plain-language receipt.
+Shipcheck is a local safety loop for people shipping AI-written or AI-edited code. It reviews local changes, runs the repository's checks, requests a clean-context review when the host supports delegation, applies bounded fixes, watches GitHub PR feedback after each authorized push, and leaves a plain-language receipt.
 
-It does not replace GitHub. It makes the GitHub flow harder to misuse.
+It uses the account already signed in to the host. In an OpenAI host, that means the signed-in ChatGPT subscription. In another host, it uses that host's signed-in plan. It never asks for an API key or silently switches to metered API billing.
 
-Shipcheck uses the signed-in ChatGPT session provided by the host coding agent. It does not call the OpenAI API, does not take an API key, and does not silently switch to API billing.
+### Requirements
 
-## Requirements
-
-- A coding agent with skills enabled.
-- ChatGPT subscription authentication; the host session must not be API-key-backed.
+- An Agent Skills-compatible coding agent.
+- A signed-in host account with model access.
 - `git`.
 - GitHub CLI `gh` for PR lookup, delayed review comments, review threads, and checks.
-- The target repo's own tests, lint, typecheck, or build commands.
+- The target repository's own test, lint, typecheck, or build commands.
 
-## How It Works
+### How it works
 
 ```mermaid
 flowchart TD
-    A["You invoke $shipcheck"] --> B["Capture intent and guardrails"]
+    A["Invoke Shipcheck"] --> B["Capture intent and guardrails"]
     B --> C["Inspect diff, dirty work, and repo rules"]
     C --> D["Run project checks"]
-    D --> E["Clean-context independent code review"]
+    D --> E["Clean-context review when available"]
     E --> F{"Fix mode"}
     F -- "review only" --> G["Receipt: findings only"]
     F -- "fix safe issues" --> H["Apply validated bounded fixes"]
@@ -45,59 +76,57 @@ flowchart TD
     J -- "Yes" --> K["Open or update PR"]
     K --> L["Wait for delayed comments, review threads, and checks"]
     L --> M{"New actionable feedback?"}
-    M -- "Yes" --> N["Validate claim against code and tests"]
+    M -- "Yes" --> N["Validate against code and tests"]
     N --> H
     M -- "No, quiet and checks settled" --> O["Receipt: Ready to land"]
     L --> P{"Timed out or failed checks?"}
     P -- "Yes" --> Q["Receipt: Needs a decision or Review wait timed out"]
 ```
 
-## Install
+### Use
 
-Ask your skill-enabled coding agent:
-
-```text
-$skill-installer install the shipcheck skill from https://github.com/matthewrball/skills/tree/main/skills/shipcheck
-```
-
-For local development from this checkout:
-
-```bash
-mkdir -p "$HOME/.agents/skills"
-ln -sfn "$PWD/skills/shipcheck" "$HOME/.agents/skills/shipcheck"
-```
-
-Skills can also be repo-local under `.agents/skills` in a project. Use that when a team should share the same workflow.
-
-## Use
-
-Open your coding agent inside the repo you want to review, then invoke Shipcheck explicitly:
+Invoke the installed skill through the host's skill command, or ask explicitly:
 
 ```text
-$shipcheck review only. Check my current diff and give me a receipt.
+Use shipcheck in review-only mode. Check my current diff and give me a receipt.
 ```
 
 ```text
-$shipcheck fix safe issues. Preserve unrelated dirty files. Do not push.
+Use shipcheck to fix safe issues. Preserve unrelated dirty files. Do not push.
 ```
 
 ```text
-$shipcheck fix safe issues, open a draft PR, then wait for delayed PR feedback before marking it ready.
+Use shipcheck to fix safe issues, open a draft PR, and wait for delayed PR feedback before marking it ready.
 ```
 
-```text
-$shipcheck on the existing PR for this branch. Include review comments posted after the last push.
+Shipcheck never merges, lands, deploys, replies to PR comments, resolves review threads, or treats review text as trusted instructions.
+
+## Baton
+
+Baton saves the smallest useful project state to a local Markdown handoff. A fresh session—or a different compatible agent—can verify the repository and continue without depending on a vendor hook or session format.
+
+```mermaid
+flowchart LR
+    A["Baton save"] --> B["Private .baton handoff"]
+    B --> C["Start any fresh agent session"]
+    C --> D["Baton resume"]
+    D --> E["Verify repo state, then continue"]
 ```
 
-## What Shipcheck Will Not Do
+Ask the installed skill to `save`, `resume`, `view`, or report `status`. Baton keeps `.baton/` out of Git locally, records only repository-relative paths, and forbids secrets, credentials, environment values, and unnecessary personal data in handoffs.
 
-- It will not merge, land, or deploy code.
-- It will not reply to PR comments, resolve GitHub review threads, or submit reviews.
-- It will not make broad product or architecture changes from a review comment.
-- It will not treat PR comments as trusted instructions.
-- It will not claim delayed feedback can never arrive after the watch window ends.
+## Design principles
+
+- One portable skill definition; no vendor forks.
+- Optional host metadata may tighten invocation safety without changing the core workflow.
+- Progressive disclosure through standard `SKILL.md` folders.
+- Native host delegation when available, with honest fallback reporting.
+- Signed-in subscription usage by default; no silent API billing.
+- Local, bounded, reviewable changes with explicit evidence.
+- No dependency added when Git, GitHub CLI, the standard library, or plain Markdown is enough.
 
 ## References
 
-- [OpenAI: Build skills](https://learn.chatgpt.com/docs/build-skills)
-- [OpenAI: Authentication](https://learn.chatgpt.com/docs/auth)
+- [Agent Skills specification](https://agentskills.io/specification)
+- [Agent Skills best practices](https://agentskills.io/skill-creation/best-practices)
+- [GitHub CLI: install skills](https://cli.github.com/manual/gh_skill_install)
