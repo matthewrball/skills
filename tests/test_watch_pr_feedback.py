@@ -400,6 +400,104 @@ class WatchPrFeedbackTests(unittest.TestCase):
             result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(once=True)
         self.assertTrue(result["pr"]["is_cross_repository"])
 
+    def test_waiting_check_is_pending(self):
+        gh = FakeGh(
+            [pull()],
+            [page()],
+            [
+                {
+                    "headRefOid": "abc",
+                    "statusCheckRollup": [
+                        {"__typename": "CheckRun", "name": "ci", "status": "WAITING", "conclusion": ""}
+                    ],
+                }
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(once=True)
+        self.assertEqual(result["status"], "pending")
+
+    def test_once_reports_failure_even_if_another_check_is_pending(self):
+        gh = FakeGh(
+            [pull()],
+            [page()],
+            [
+                {
+                    "headRefOid": "abc",
+                    "statusCheckRollup": [
+                        {"__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "FAILURE"},
+                        {"__typename": "CheckRun", "name": "ci", "status": "IN_PROGRESS", "conclusion": ""},
+                    ],
+                }
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(once=True)
+        self.assertEqual(result["status"], "checks_failed")
+
+    def test_pre_baseline_changes_requested_still_blocks(self):
+        review = {
+            "id": "r1",
+            "body": "",
+            "url": "r",
+            "state": "CHANGES_REQUESTED",
+            "submittedAt": "2026-08-14T00:00:00Z",
+            "commit": {"oid": "abc"},
+            "author": {"login": "reviewer", "__typename": "User"},
+        }
+        gh = FakeGh([pull()], [page(reviews=[review])], [clean_checks()])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(
+                once=True, since="2026-08-14T00:00:01Z"
+            )
+        item = result["feedback"][0]
+        self.assertEqual(result["status"], "feedback_ready")
+        self.assertFalse(item["after_baseline"])
+        self.assertTrue(item["blocks_ready"])
+
+    def test_dismissed_review_with_body_does_not_block(self):
+        review = {
+            "id": "r1",
+            "body": "Please fix the leak",
+            "url": "r",
+            "state": "DISMISSED",
+            "submittedAt": "2026-08-14T00:00:02Z",
+            "commit": {"oid": "abc"},
+            "author": {"login": "reviewer", "__typename": "User"},
+        }
+        gh = FakeGh([pull()], [page(reviews=[review])], [clean_checks()])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(
+                once=True, since="2026-08-14T00:00:01Z"
+            )
+        self.assertEqual(result["status"], "snapshot")
+        self.assertTrue(result["feedback"][0]["likely_noise"])
+        self.assertFalse(result["feedback"][0]["blocks_ready"])
+
+    def test_bot_thread_comment_still_blocks(self):
+        thread = {
+            "id": "thread1",
+            "isResolved": False,
+            "isOutdated": False,
+            "path": "app.py",
+            "line": 3,
+            "comments": {
+                "nodes": [
+                    comment("tc1", "This leaks", "2026-08-14T00:00:02Z", author="coderabbitai", author_type="Bot")
+                ],
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+            },
+        }
+        gh = FakeGh([pull()], [page(threads=[thread])], [clean_checks()])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(
+                once=True, since="2026-08-14T00:00:01Z"
+            )
+        item = result["feedback"][0]
+        self.assertEqual(result["status"], "feedback_ready")
+        self.assertFalse(item["likely_noise"])
+        self.assertTrue(item["blocks_ready"])
+
 
 if __name__ == "__main__":
     unittest.main()

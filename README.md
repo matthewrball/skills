@@ -57,7 +57,7 @@ Other Agent Skills-compatible hosts can load the same folders. Products without 
 
 Shipcheck is a local safety loop for people shipping AI-written or AI-edited code. It reviews local changes, runs the repository's checks, requests a clean-context review when the host supports delegation, applies bounded fixes, snapshots GitHub PR feedback after each authorized push, and leaves a plain-language receipt.
 
-It uses the account already signed in to the host. In an OpenAI host, that means the signed-in ChatGPT subscription. In another host, it uses that host's signed-in plan. If the host exposes no account or billing surface, Shipcheck treats access as unverified and does not launch a separately billed model. It never asks for an API key or silently switches to metered API billing.
+It uses the account already signed in to the host. In an OpenAI host, that means the signed-in ChatGPT subscription. In another host, it uses that host's signed-in plan. If the host exposes no account or billing surface, Shipcheck records access as unverified and still runs a clean-context review through the host's native delegation. It never asks for an API key or silently switches to metered API billing.
 
 Use a read-only review skill when you want findings only, or a pending GitHub review you will submit yourself. Use a PR babysitter when you want an agent that replies on GitHub, restacks, or loops until merge. Shipcheck does not submit reviews, reply to comments, resolve threads, or merge.
 
@@ -77,7 +77,7 @@ flowchart TD
     A["Invoke Shipcheck"] --> B["Capture intent and guardrails"]
     B --> C["Inspect diff, dirty work, and repo rules"]
     C --> D["Run project checks"]
-    D --> E["Clean-context review when available"]
+    D --> E["Clean-context review via host delegation"]
     E --> F{"Fix mode"}
     F -- "review only" --> G["Receipt: findings only"]
     F -- "fix safe issues" --> H["Apply validated bounded fixes"]
@@ -90,13 +90,14 @@ flowchart TD
     L --> M{"Blocking feedback?"}
     M -- "Yes" --> N["Validate against code and tests"]
     N --> H
-    M -- "No, checks green" --> O["Receipt: Ready to land"]
-    L --> P{"Failed or attention-needed checks?"}
-    P -- "Yes" --> Q["Receipt: Needs a decision"]
-    L --> R{"User asked to wait?"}
+    M -- "No" --> P{"Checks?"}
+    P -- "Failed or need attention" --> Q["Receipt: Needs a decision"]
+    P -- "Pending or not reported yet" --> R{"User asked to wait?"}
+    P -- "Green or repo has no checks" --> O["Receipt: Ready to land"]
     R -- "Yes" --> S["Background watcher until quiet or timeout"]
     S --> M
     S --> T["Receipt: Review wait timed out"]
+    R -- "No" --> Q
 ```
 
 ### Use

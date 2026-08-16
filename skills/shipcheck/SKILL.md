@@ -38,7 +38,7 @@ Before reviewing or editing:
 
 1. Confirm the user explicitly invoked Shipcheck through the host's skill mechanism or a clear natural-language request.
 2. Inspect the branch, upstream, worktrees, `git status --short --branch`, and untracked files.
-3. If the host exposes an account or billing surface, use it to confirm signed-in plan access. If it exposes no such surface, treat access as unverified. Continue to delegated reviewer work only when that surface confirms subscription or bundled-plan access. If access is API-key-backed, separately metered, or unverified, do not launch another model or accept an API key; continue with local checks and review in this session, disclose the limitation, and return `Needs a decision` if the user required subscription-backed review.
+3. Record account mode. If the host exposes an account or billing surface, use it to confirm signed-in plan access. If it exposes no such surface, record `unverified`. Unverified account mode does not skip the clean-context reviewer.
 4. Read relevant repository instructions and existing test/check commands.
 5. If PR work is in scope, run `gh auth status` and return `Needs a decision` if it fails.
 6. Capture the user's intent in plain language: what should change; what must not change; selected fix mode; how success will be checked; whether GitHub writes are authorized.
@@ -47,8 +47,8 @@ Before reviewing or editing:
 
 1. Inspect the diff and nearby code.
 2. Run the smallest useful repository checks first; broaden only when risk requires it.
-3. Request one clean-context reviewer through the host's native delegation, subagent, or background-task feature when available. Prefer a different model family when the host offers one through the user's existing plan. Provide the intent contract, diff, relevant files, and check results; require concrete file and line evidence.
-4. If no clean-context reviewer is available without separate API billing, perform a distinct second-pass self-review and record `independent reviewer unavailable` in the receipt. Never represent this fallback as independent or multi-model review. If the user required independent review, return `Needs a decision` until one is available.
+3. Always request one clean-context reviewer through the host's native delegation, subagent, or background-task feature when the host has one. That uses the signed-in session and is required even when account mode is unverified. Prefer a different model family when the host offers one on the same plan. Do not ask for an API key and do not launch a separately billed or metered API model. Provide the intent contract, diff, relevant files, and check results; require concrete file and line evidence.
+4. If the host has no native delegation feature, perform a distinct second-pass self-review and record `self-review fallback (host has no native delegation)`. Never represent that fallback as independent or multi-model review. If the user required independent review and the host cannot delegate, return `Needs a decision`.
 5. Validate every finding against the code, intent, and tests before editing.
 6. Apply only bounded fixes directly supported by evidence and allowed by the fix mode.
 7. Re-run the checks that prove the fix.
@@ -60,7 +60,7 @@ Do not add a dependency, framework, service, or abstraction unless the repositor
 
 When the user authorizes opening or updating a PR, or invokes Shipcheck on an existing PR, run `scripts/watch_pr_feedback.py` after each PR open, branch push, or existing-PR handoff. Open new PRs as drafts (`gh pr create --draft`) unless the user asks for a ready-for-review PR.
 
-Immediately before an authorized PR open or push, capture a UTC baseline. Resolve `SHIPCHECK_DIR` to the directory containing this `SKILL.md`. Prefer a single snapshot unless the user asked to wait:
+Immediately before an authorized PR open or push, capture a UTC baseline. On an existing-PR handoff with no new push, omit `--since` so a stored baseline is reused; do not mint a fresh `utc_now()` baseline that hides outstanding review. Resolve `SHIPCHECK_DIR` to the directory containing this `SKILL.md`. Prefer a single snapshot unless the user asked to wait:
 
 ```bash
 baseline=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -81,7 +81,7 @@ The watcher:
 - outputs machine-readable JSON;
 - never writes to GitHub.
 
-Classify every item using `after_baseline`, `on_current_head` (present only when the item has a commit), `is_resolved`, `is_outdated`, `likely_noise`, and `blocks_ready`. `blocks_ready` is the mechanical subset that prevents `Ready to land`. Typical non-blocking items: pre-baseline comments, resolved or outdated threads, empty `APPROVED`/`COMMENTED`/`DISMISSED` reviews, and bot issue comments. Bot reviews and thread comments can be automated code review and still block. Empty `CHANGES_REQUESTED` still blocks. A question-only review, or feedback that conflicts with intent, needs a user decision.
+Classify every item using `after_baseline`, `on_current_head` (present only when the item has a commit), `is_resolved`, `is_outdated`, `likely_noise`, and `blocks_ready`. `blocks_ready` is the mechanical subset that prevents `Ready to land`. Typical non-blocking items: pre-baseline comments, resolved or outdated threads, empty `APPROVED`/`COMMENTED` reviews, any `DISMISSED` review, and bot issue comments. Bot reviews and thread comments can be automated code review and still block. `CHANGES_REQUESTED` blocks even when it predates the baseline or the body is empty. A question-only review, or feedback that conflicts with intent, needs a user decision.
 
 Ack an item with repeatable `--ack <ack_id>` only after its work and checks finish. Interrupted work must be delivered again. Non-blocking items may be acked so they drop out of later output; settlement does not require that. Never ack an actionable item before its fix is done.
 
@@ -102,11 +102,11 @@ End with this receipt. Omit a row only when it cannot exist (no PR, watch not ru
 - Fix mode: review only | fix safe issues | fix anything in scope
 - Files changed by Shipcheck: <paths or none>
 - Checks: `<command>` → <exact result>
-- Reviewer: independent delegated review | self-review fallback (independent reviewer unavailable)
+- Reviewer: independent delegated review | self-review fallback (host has no native delegation)
 - Account: confirmed signed-in host plan | unverified (no host billing surface)
-- Watch: <start> → <end>; --once snapshot | quiet settled | timed out | not run
+- Watch: <start> → <end>; --once snapshot | quiet settled | pending | feedback_ready | checks_failed | checks_need_attention | timed out | not run
 - Feedback: <acked / blocking / informational / none>
 - Pending or attention checks: <none or names>
 ```
 
-Never say `Ready to land` if checks failed, checks need attention, required independent review was unavailable, blocking feedback is unresolved, or a requested wait timed out with pending activity.
+Never say `Ready to land` if watch status is not `snapshot` or `settled`, `pending_checks` is non-empty, checks failed, checks need attention, blocking feedback is unresolved, the user required independent review and the host cannot delegate, or a requested wait timed out with pending activity. Right after an open or push, an empty check rollup means checks have not reported yet, not green; snapshot again or wait. A repo with no checks configured may keep an empty rollup; that does not block.

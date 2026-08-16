@@ -16,7 +16,7 @@ from pathlib import Path
 
 
 PASSING = {"SUCCESS", "NEUTRAL", "SKIPPED"}
-PENDING_STATES = {"QUEUED", "IN_PROGRESS", "PENDING", "EXPECTED"}
+PENDING_STATES = {"QUEUED", "IN_PROGRESS", "PENDING", "EXPECTED", "WAITING", "REQUESTED"}
 FAILING_STATES = {"FAILURE", "ERROR"}
 ATTENTION_STATES = {
     "CANCELLED",
@@ -26,7 +26,8 @@ ATTENTION_STATES = {
     "ACTION_REQUIRED",
     "STARTUP_FAILURE",
 }
-NOISE_REVIEW_STATES = {"APPROVED", "COMMENTED", "DISMISSED"}
+TERMINAL_STATUSES = {"COMPLETED", "SUCCESS", "FAILURE", "ERROR", "NEUTRAL", "SKIPPED"} | ATTENTION_STATES
+EMPTY_NOISE_REVIEW_STATES = {"APPROVED", "COMMENTED"}
 BOT_AUTHOR_TYPES = {"Bot", "Mannequin"}
 EXIT_CODES = {
     "settled": 0,
@@ -278,8 +279,10 @@ class Watcher:
 
     @staticmethod
     def is_likely_noise(item: dict) -> bool:
+        if item.get("kind") == "review" and item.get("state") == "DISMISSED":
+            return True
         body = (item.get("body") or "").strip()
-        if item.get("kind") == "review" and not body and item.get("state") in NOISE_REVIEW_STATES:
+        if item.get("kind") == "review" and not body and item.get("state") in EMPTY_NOISE_REVIEW_STATES:
             return True
         # Bot issue comments are usually CI noise. Bot reviews and thread
         # comments can be automated code review and must still be classified.
@@ -287,12 +290,11 @@ class Watcher:
 
     @staticmethod
     def blocks_ready(item: dict) -> bool:
-        return bool(
-            item.get("after_baseline")
-            and not item.get("is_resolved")
-            and not item.get("is_outdated")
-            and not item.get("likely_noise")
-        )
+        if item.get("is_resolved") or item.get("is_outdated") or item.get("likely_noise"):
+            return False
+        if item.get("kind") == "review" and item.get("state") == "CHANGES_REQUESTED":
+            return True
+        return bool(item.get("after_baseline"))
 
     def annotate(self, items: list[dict], head: str, baseline: str) -> None:
         baseline_time = parse_timestamp(baseline)
@@ -321,7 +323,7 @@ class Watcher:
         for item in rollup:
             status = (item.get("status") or item.get("state") or "").upper()
             conclusion = (item.get("conclusion") or "").upper()
-            if status in PENDING_STATES:
+            if status in PENDING_STATES or (status and status not in TERMINAL_STATUSES and not conclusion):
                 pending.append(item)
             elif status in FAILING_STATES or conclusion in FAILING_STATES:
                 failing.append(item)
@@ -386,12 +388,12 @@ class Watcher:
             if once:
                 if blocking:
                     return self.result("feedback_ready", pr, head, unacked, check)
-                if check["pending"]:
-                    return self.result("pending", pr, head, unacked, check)
                 if check["failing"]:
                     return self.result("checks_failed", pr, head, unacked, check)
                 if check["attention"]:
                     return self.result("checks_need_attention", pr, head, unacked, check)
+                if check["pending"]:
+                    return self.result("pending", pr, head, unacked, check)
                 return self.finish("snapshot", pr, head, unacked, check, pr_state, path, state)
             if blocking:
                 return self.result("feedback_ready", pr, head, unacked, check)
