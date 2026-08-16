@@ -81,7 +81,7 @@ The watcher:
 - outputs machine-readable JSON;
 - never writes to GitHub.
 
-Classify every item using `after_baseline`, `on_current_head` (present only when the item has a commit), `is_resolved`, `is_outdated`, `likely_noise`, and `blocks_ready`. `blocks_ready` is the mechanical subset that prevents `Ready to land`. Typical non-blocking items: pre-baseline comments, resolved or outdated threads, empty `APPROVED`/`COMMENTED`/`DISMISSED` reviews, and bot authors. Empty `CHANGES_REQUESTED` still blocks. A question-only review, or feedback that conflicts with intent, needs a user decision.
+Classify every item using `after_baseline`, `on_current_head` (present only when the item has a commit), `is_resolved`, `is_outdated`, `likely_noise`, and `blocks_ready`. `blocks_ready` is the mechanical subset that prevents `Ready to land`. Typical non-blocking items: pre-baseline comments, resolved or outdated threads, empty `APPROVED`/`COMMENTED`/`DISMISSED` reviews, and bot issue comments. Bot reviews and thread comments can be automated code review and still block. Empty `CHANGES_REQUESTED` still blocks. A question-only review, or feedback that conflicts with intent, needs a user decision.
 
 Ack an item with repeatable `--ack <ack_id>` only after its work and checks finish. Interrupted work must be delivered again. Non-blocking items may be acked so they drop out of later output; settlement does not require that. Never ack an actionable item before its fix is done.
 

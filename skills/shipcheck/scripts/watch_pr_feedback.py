@@ -10,7 +10,6 @@ import argparse
 import json
 import re
 import subprocess
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -279,10 +278,12 @@ class Watcher:
 
     @staticmethod
     def is_likely_noise(item: dict) -> bool:
-        if item.get("author_type") in BOT_AUTHOR_TYPES:
-            return True
         body = (item.get("body") or "").strip()
-        return item.get("kind") == "review" and not body and item.get("state") in NOISE_REVIEW_STATES
+        if item.get("kind") == "review" and not body and item.get("state") in NOISE_REVIEW_STATES:
+            return True
+        # Bot issue comments are usually CI noise. Bot reviews and thread
+        # comments can be automated code review and must still be classified.
+        return item.get("author_type") in BOT_AUTHOR_TYPES and item.get("kind") == "comment"
 
     @staticmethod
     def blocks_ready(item: dict) -> bool:

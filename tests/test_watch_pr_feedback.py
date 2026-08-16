@@ -281,6 +281,26 @@ class WatchPrFeedbackTests(unittest.TestCase):
         self.assertFalse(result["feedback"][0]["blocks_ready"])
         self.assertTrue(result["feedback"][0]["on_current_head"])
 
+    def test_bot_changes_requested_still_blocks(self):
+        review = {
+            "id": "r1",
+            "body": "Please fix the leak",
+            "url": "r",
+            "state": "CHANGES_REQUESTED",
+            "submittedAt": "2026-08-14T00:00:02Z",
+            "commit": {"oid": "abc"},
+            "author": {"login": "coderabbitai", "__typename": "Bot"},
+        }
+        gh = FakeGh([pull()], [page(reviews=[review])], [clean_checks()])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = watch.Watcher(gh, state_path=Path(tmp) / "state.json").watch(
+                once=True, since="2026-08-14T00:00:01Z"
+            )
+        item = result["feedback"][0]
+        self.assertEqual(result["status"], "feedback_ready")
+        self.assertFalse(item["likely_noise"])
+        self.assertTrue(item["blocks_ready"])
+
     def test_bot_comment_does_not_block(self):
         gh = FakeGh(
             [pull()],
