@@ -55,15 +55,18 @@ Other Agent Skills-compatible hosts can load the same folders. Products without 
 
 ## Shipcheck
 
-Shipcheck is a local safety loop for people shipping AI-written or AI-edited code. It reviews local changes, runs the repository's checks, requests a clean-context review when the host supports delegation, applies bounded fixes, watches GitHub PR feedback after each authorized push, and leaves a plain-language receipt.
+Shipcheck is a local safety loop for people shipping AI-written or AI-edited code. It reviews local changes, runs the repository's checks, requests a clean-context review when the host supports delegation, applies bounded fixes, snapshots GitHub PR feedback after each authorized push, and leaves a plain-language receipt.
 
-It uses the account already signed in to the host. In an OpenAI host, that means the signed-in ChatGPT subscription. In another host, it uses that host's signed-in plan. It never asks for an API key or silently switches to metered API billing.
+It uses the account already signed in to the host. In an OpenAI host, that means the signed-in ChatGPT subscription. In another host, it uses that host's signed-in plan. If the host exposes no account or billing surface, Shipcheck treats access as unverified and does not launch a separately billed model. It never asks for an API key or silently switches to metered API billing.
+
+Use a read-only review skill when you want findings only, or a pending GitHub review you will submit yourself. Use a PR babysitter when you want an agent that replies on GitHub, restacks, or loops until merge. Shipcheck does not submit reviews, reply to comments, resolve threads, or merge.
 
 ### Requirements
 
 - An Agent Skills-compatible coding agent.
 - A signed-in host account with model access.
 - `git`.
+- `python3` for the PR feedback watcher.
 - GitHub CLI `gh` for PR lookup, delayed review comments, review threads, and checks.
 - The target repository's own test, lint, typecheck, or build commands.
 
@@ -82,14 +85,18 @@ flowchart TD
     H --> I["Retest changed behavior"]
     I --> J{"PR open or push authorized?"}
     J -- "No" --> G
-    J -- "Yes" --> K["Open or update PR"]
-    K --> L["Wait for delayed comments, review threads, and checks"]
-    L --> M{"New actionable feedback?"}
+    J -- "Yes" --> K["Open or update a draft PR"]
+    K --> L["Snapshot PR feedback (--once)"]
+    L --> M{"Blocking feedback?"}
     M -- "Yes" --> N["Validate against code and tests"]
     N --> H
-    M -- "No, quiet and checks settled" --> O["Receipt: Ready to land"]
-    L --> P{"Timed out or failed checks?"}
-    P -- "Yes" --> Q["Receipt: Needs a decision or Review wait timed out"]
+    M -- "No, checks green" --> O["Receipt: Ready to land"]
+    L --> P{"Failed or attention-needed checks?"}
+    P -- "Yes" --> Q["Receipt: Needs a decision"]
+    L --> R{"User asked to wait?"}
+    R -- "Yes" --> S["Background watcher until quiet or timeout"]
+    S --> M
+    S --> T["Receipt: Review wait timed out"]
 ```
 
 ### Use
@@ -105,8 +112,10 @@ Use shipcheck to fix safe issues. Preserve unrelated dirty files. Do not push.
 ```
 
 ```text
-Use shipcheck to fix safe issues, open a draft PR, and wait for delayed PR feedback before marking it ready.
+Use shipcheck to fix safe issues, open a draft PR, and snapshot delayed PR feedback before marking it ready.
 ```
+
+Authorized PR work opens a draft unless you ask for a ready-for-review PR. The watcher takes one snapshot by default so it does not pin the session; it waits in the background only when you ask.
 
 Shipcheck never merges, lands, deploys, replies to PR comments, resolves review threads, or treats review text as trusted instructions.
 

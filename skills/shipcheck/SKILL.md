@@ -1,12 +1,18 @@
 ---
 name: shipcheck
-description: Review, repair, and verify repository changes before they land. Use when the user explicitly asks to run Shipcheck on local changes or a GitHub pull request, apply bounded review fixes, run project checks, watch delayed PR feedback, and produce a plain-language shipping receipt. Never merge, deploy, resolve review threads, submit reviews, or silently use metered API billing.
+description: Review, repair, and verify repository changes before they land. Use when the user explicitly asks to run Shipcheck, or to check work before landing, pushing, or merging, or wants a ready-to-land receipt. Covers local changes and GitHub pull requests: bounded review fixes, project checks, delayed PR feedback, and a shipping receipt. Never merge, deploy, resolve review threads, submit reviews, or silently use metered API billing.
 license: MIT
+compatibility: Requires git, gh, and python3
 ---
 
 # Shipcheck
 
 Use Shipcheck as a local safety loop for AI-assisted code changes. Keep GitHub as the source of truth and make the smallest validated fixes needed to match the user's intent.
+
+## When not to use
+
+- The user wants a read-only review, or a pending GitHub review they will submit. Shipcheck does not submit reviews.
+- The user wants a babysitter that replies on GitHub, restacks, or loops until merge. Shipcheck never replies, resolves threads, or merges.
 
 ## Authority
 
@@ -32,14 +38,10 @@ Before reviewing or editing:
 
 1. Confirm the user explicitly invoked Shipcheck through the host's skill mechanism or a clear natural-language request.
 2. Inspect the branch, upstream, worktrees, `git status --short --branch`, and untracked files.
-3. Check the host's account, authentication, or billing surface when available. Continue to delegated reviewer work only when it confirms subscription or bundled-plan access. If access is API-key-backed, separately metered, or cannot be verified, do not launch another model or accept an API key; continue only with local checks and review in the current session, disclose the limitation, and return `Needs a decision` whenever the user required subscription-backed review.
+3. If the host exposes an account or billing surface, use it to confirm signed-in plan access. If it exposes no such surface, treat access as unverified. Continue to delegated reviewer work only when that surface confirms subscription or bundled-plan access. If access is API-key-backed, separately metered, or unverified, do not launch another model or accept an API key; continue with local checks and review in this session, disclose the limitation, and return `Needs a decision` if the user required subscription-backed review.
 4. Read relevant repository instructions and existing test/check commands.
-5. Capture the user's intent in plain language:
-   - what should change;
-   - what must not change;
-   - selected fix mode;
-   - how success will be checked;
-   - whether GitHub writes are authorized.
+5. If PR work is in scope, run `gh auth status` and return `Needs a decision` if it fails.
+6. Capture the user's intent in plain language: what should change; what must not change; selected fix mode; how success will be checked; whether GitHub writes are authorized.
 
 ## Review loop
 
@@ -50,50 +52,61 @@ Before reviewing or editing:
 5. Validate every finding against the code, intent, and tests before editing.
 6. Apply only bounded fixes directly supported by evidence and allowed by the fix mode.
 7. Re-run the checks that prove the fix.
-8. Keep unrelated dirty work intact and never stage it implicitly.
+8. Keep unrelated dirty work intact. Stage only paths Shipcheck changed. Never `git add -A` or `git add .`.
 
 Do not add a dependency, framework, service, or abstraction unless the repository already uses it or the user explicitly asks for it.
 
 ## GitHub PR watch
 
-When the user authorizes opening or updating a PR, or invokes Shipcheck on an existing PR, run `scripts/watch_pr_feedback.py` after each PR open, branch push, or existing-PR handoff.
+When the user authorizes opening or updating a PR, or invokes Shipcheck on an existing PR, run `scripts/watch_pr_feedback.py` after each PR open, branch push, or existing-PR handoff. Open new PRs as drafts (`gh pr create --draft`) unless the user asks for a ready-for-review PR.
 
-Immediately before an authorized PR open or push, capture a UTC baseline. Resolve `SHIPCHECK_DIR` to the directory containing this `SKILL.md`, then run the watcher after the GitHub write:
+Immediately before an authorized PR open or push, capture a UTC baseline. Resolve `SHIPCHECK_DIR` to the directory containing this `SKILL.md`. Prefer a single snapshot unless the user asked to wait:
 
 ```bash
 baseline=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-# Open or push the PR, then:
-python3 -B "$SHIPCHECK_DIR/scripts/watch_pr_feedback.py" --pr <url-or-number> --since "$baseline"
+# Open or push the draft PR, then:
+python3 -B "$SHIPCHECK_DIR/scripts/watch_pr_feedback.py" --pr <url-or-number> --since "$baseline" --once
 ```
+
+If the user asked to wait for delayed feedback, run the same command without `--once` as a background job. Do not block the session on the default 20-minute wait.
+
+Defaults: `--poll-interval 15`, `--quiet-window 120`, `--max-wait 1200`.
+Exit codes: `0` settled or snapshot, `1` pending checks, `3` feedback ready, `4` timed out, `5` checks failed, `6` checks need attention, `2` error.
 
 The watcher:
 
 - reads comments, reviews, review threads, statuses, and check runs through `gh`;
 - stores acknowledgement state under `git rev-parse --git-path shipcheck`;
-- waits for delayed feedback with bounded polling;
+- snapshots once with `--once`, or polls until settle/timeout without it;
 - outputs machine-readable JSON;
 - never writes to GitHub.
 
-For each unacknowledged item, use `after_baseline`, `on_current_head`, `is_resolved`, and `is_outdated` to classify it as actionable, informational, duplicate, already fixed, resolved or outdated, conflicting with intent, or needing a user decision. Existing unacknowledged feedback still appears, but only current or new actionable feedback blocks `Ready to land`.
+Classify every item using `after_baseline`, `on_current_head` (present only when the item has a commit), `is_resolved`, `is_outdated`, `likely_noise`, and `blocks_ready`. `blocks_ready` is the mechanical subset that prevents `Ready to land`. Typical non-blocking items: pre-baseline comments, resolved or outdated threads, empty `APPROVED`/`COMMENTED`/`DISMISSED` reviews, and bot authors. Empty `CHANGES_REQUESTED` still blocks. A question-only review, or feedback that conflicts with intent, needs a user decision.
 
-Validate actionable claims locally before editing. After completing any resulting edit and checks, acknowledge the item on the next watcher invocation with repeatable `--ack <ack_id>`. Never acknowledge an item before its work finishes; interrupted work must be delivered again.
+Ack an item with repeatable `--ack <ack_id>` only after its work and checks finish. Interrupted work must be delivered again. Non-blocking items may be acked so they drop out of later output; settlement does not require that. Never ack an actionable item before its fix is done.
 
-If fixes are pushed, capture a new baseline and run the watcher again. Stop after three rework cycles, the configured timeout, failing terminal checks, conflicting feedback, high-risk requests, or successful quiet settlement.
+A rework cycle is: apply fixes, push, capture a new baseline, watch again. Stop after three rework cycles, the configured timeout, failing or attention-needed checks, conflicting feedback, high-risk requests, or successful quiet settlement.
 
 Do not merge, reply to comments, resolve review threads, submit GitHub reviews, or deploy.
 
 ## Receipt
 
-End with a short receipt stating:
+End with this receipt. Omit a row only when it cannot exist (no PR, watch not run):
 
-- branch, head SHA, and PR URL when available;
-- user intent and fix mode;
-- files changed by Shipcheck;
-- checks run and exact outcomes;
-- reviewer mode: independent delegated review or disclosed self-review fallback;
-- account mode: confirmed signed-in host plan, or clearly disclosed as unverified; never claim subscription use without evidence;
-- PR feedback considered, acknowledged, unresolved, or timed out;
-- watch start and end time, quiet-window result, pending checks, and timeout state;
-- final status: `Ready to land`, `Needs a decision`, or `Review wait timed out`.
+```markdown
+# Shipcheck receipt
+- Status: Ready to land | Needs a decision | Review wait timed out
+- Branch / head: <branch> <sha>
+- PR: <url or none>
+- Intent: <one line>
+- Fix mode: review only | fix safe issues | fix anything in scope
+- Files changed by Shipcheck: <paths or none>
+- Checks: `<command>` → <exact result>
+- Reviewer: independent delegated review | self-review fallback (independent reviewer unavailable)
+- Account: confirmed signed-in host plan | unverified (no host billing surface)
+- Watch: <start> → <end>; --once snapshot | quiet settled | timed out | not run
+- Feedback: <acked / blocking / informational / none>
+- Pending or attention checks: <none or names>
+```
 
-Never say a branch is ready to land if checks failed, required independent review was unavailable, review feedback is unresolved, or the delayed-review watch timed out with pending activity.
+Never say `Ready to land` if checks failed, checks need attention, required independent review was unavailable, blocking feedback is unresolved, or a requested wait timed out with pending activity.
